@@ -3,10 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>旧件全能核对系统</title>
+    <title>旧件核对分箱系统 V4</title>
     <script src="https://cdn.sheetjs.com/xlsx-0.19.3/package/dist/xlsx.full.min.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <style>
+        /* CSS 样式部分：定义界面外观 */
         :root { --ios-blue: #007aff; --ios-green: #34c759; --safe-top: env(safe-area-inset-top); }
         body { font-family: -apple-system, sans-serif; background: #f2f2f7; margin: 0; padding: calc(var(--safe-top) + 10px) 16px 220px 16px; }
         .card { background: #fff; border-radius: 16px; padding: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-bottom: 12px; }
@@ -18,7 +19,6 @@
         .box-control { display: flex; align-items: center; gap: 10px; background: #f0f0f5; padding: 8px 12px; border-radius: 10px; }
         .box-input { width: 55px; padding: 6px; border: 1px solid #ddd; border-radius: 6px; text-align: center; font-weight: bold; font-size: 16px; color: var(--ios-blue); }
 
-        /* 搜索框样式 */
         .filter-input { width: 100%; border: 1px solid #d1d1d6; border-radius: 10px; padding: 12px; margin-top: 10px; box-sizing: border-box; font-size: 15px; }
         
         #reader { width: 100%; border-radius: 12px; overflow: hidden; background: #000; margin-top: 10px; min-height: 180px; position: relative; }
@@ -27,15 +27,16 @@
         .list-item { padding: 12px; border-bottom: 0.5px solid #eee; position: relative; display: flex; flex-direction: column; gap: 6px; }
         .list-item.in-box { border-left: 6px solid var(--ios-green); background: #fafff9; }
         
-        /* 数据行样式 */
         .tag-row { display: flex; flex-wrap: wrap; gap: 5px; }
         .tag { font-size: 11px; padding: 2px 6px; border-radius: 4px; background: #eee; color: #444; font-weight: 500; }
         .tag-blue { background: #e5f1ff; color: #007aff; }
         .tag-orange { background: #fff3cd; color: #856404; }
         
-        .data-label { font-size: 12px; color: #888; margin-right: 4px; }
-        .data-value { font-size: 12px; color: #1a1a1a; word-break: break-all; font-family: monospace; }
-        .info-block { background: #f8f8f8; padding: 6px; border-radius: 8px; margin-top: 2px; border: 0.5px solid #efefef; }
+        /* 信息块样式：确保长单号和长条码能完整显示并换行 */
+        .info-block { background: #f8f8f8; padding: 8px; border-radius: 8px; margin-top: 2px; border: 0.5px solid #efefef; }
+        .data-row { display: flex; margin-bottom: 4px; font-size: 12px; }
+        .data-label { color: #888; width: 65px; flex-shrink: 0; }
+        .data-value { color: #1a1a1a; word-break: break-all; font-family: monospace; font-weight: 500; }
 
         .box-badge { position: absolute; right: 12px; top: 12px; background: var(--ios-green); color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: bold; }
 
@@ -51,7 +52,7 @@
     <h3>📂 1. 数据导入</h3>
     <input type="file" id="excelInput" accept=".xlsx, .xls, .csv" style="display: none;">
     <button class="btn btn-blue" onclick="document.getElementById('excelInput').click()">选择《待回运旧件清单》</button>
-    <div id="statusLog" style="text-align:center; font-size:12px; color:#999; margin-top:8px;">等待导入数据...</div>
+    <div id="statusLog" style="text-align:center; font-size:12px; color:#999; margin-top:8px;">未加载数据</div>
 </div>
 
 <div class="card">
@@ -72,7 +73,7 @@
             <h3>📋 3. 核对明细</h3>
             <b id="statText" style="color:var(--ios-blue); font-size:18px;">0 / 0</b>
         </div>
-        <input type="text" id="filterInput" class="filter-input" placeholder="🔍 搜索 品牌/VIN/零件号/条码...">
+        <input type="text" id="filterInput" class="filter-input" placeholder="🔍 搜索 单号/品牌/VIN/件号/条码...">
     </div>
     <div id="itemList" style="margin-top: 10px; max-height: 380px; overflow-y: auto;"></div>
 </div>
@@ -86,22 +87,24 @@
 </audio>
 
 <script>
-    let inventory = [];
-    let boxData = {}; 
+    let inventory = []; // 存储导入的所有原始数据
+    let boxData = {};   // 存储装箱关系：条码 -> {箱号}
     let isProcessing = false;
     let cameraActive = false;
     const html5QrCode = new Html5Qrcode("reader");
     const beep = document.getElementById('beepAudio');
 
+    // 弹窗提示函数
     function showToast(msg) {
         const t = document.getElementById('toast');
         t.innerText = msg; t.style.display = 'block';
         setTimeout(() => { t.style.display = 'none'; isProcessing = false; }, 2000);
     }
 
-    // 筛选逻辑解释：将用户输入的字符串转换为大写，并与品牌、VIN、件号、条码进行比对
+    // 筛选监听：实时过滤列表
     document.getElementById('filterInput').addEventListener('input', (e) => renderList(e.target.value.toUpperCase()));
 
+    // 文件读取逻辑：解析Excel并存入内存
     document.getElementById('excelInput').addEventListener('change', function(e) {
         const file = e.target.files[0];
         if (!file) return;
@@ -111,7 +114,7 @@
             const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
             
             inventory = json.map(row => ({
-                orderNo: String(row["保修单号"] || ''),
+                orderNo: String(row["保修单号"] || ''), // 保修单号数据抓取
                 partNo: String(row["旧件编号"] || ''),
                 name: String(row["旧件名称"] || ''),
                 barcode: String(row["旧件条码"] || '').trim(),
@@ -123,13 +126,14 @@
                 original: row
             }));
             
-            document.getElementById('statusLog').innerText = `✅ 已成功加载 ${inventory.length} 条数据`;
+            document.getElementById('statusLog').innerText = `✅ 已加载 ${inventory.length} 条数据`;
             renderList();
             document.getElementById('camBtn').style.display = 'block';
         };
         reader.readAsArrayBuffer(file);
     });
 
+    // 相机开关控制
     document.getElementById('camBtn').addEventListener('click', function() {
         if(!cameraActive) {
             document.getElementById('reader-status').style.display = 'none';
@@ -146,6 +150,7 @@
         }
     });
 
+    // 装箱处理：匹配条码并记录箱号
     function handleSelection(barcode) {
         const item = inventory.find(i => i.barcode === barcode);
         if(!item) { isProcessing = true; showToast("❌ 列表无此条码"); return; }
@@ -154,17 +159,18 @@
         const currentBox = document.getElementById('boxNumber').value;
         boxData[barcode] = { boxId: currentBox };
         beep.play();
-        if (navigator.vibrate) navigator.vibrate(80);
+        if (navigator.vibrate) navigator.vibrate(80); // 震动反馈
         renderList(document.getElementById('filterInput').value.toUpperCase());
     }
 
-    // 渲染逻辑解释：根据筛选条件生成列表，并显性展示品牌、数量等必填信息
+    // 渲染列表：负责界面的显示和筛选过滤
     function renderList(filter = '') {
         const listDiv = document.getElementById('itemList');
         listDiv.innerHTML = '';
         
-        // 支持全字段筛选：品牌、VIN、件号、条码、名称
+        // 筛选逻辑：支持单号、品牌、VIN、件号、条码、名称的全维度搜索
         const filtered = inventory.filter(i => 
+            i.orderNo.toUpperCase().includes(filter) || // 新增：支持保修单号筛选
             i.brand.toUpperCase().includes(filter) ||
             i.vin.toUpperCase().includes(filter) || 
             i.partNo.toUpperCase().includes(filter) || 
@@ -186,9 +192,10 @@
                 </div>
                 
                 <div class="info-block">
-                    <div><span class="data-label">零件号:</span><span class="data-value">${item.partNo}</span></div>
-                    <div style="margin-top:4px;"><span class="data-label">VIN:</span><span class="data-value">${item.vin}</span></div>
-                    <div style="margin-top:4px;"><span class="data-label">条码:</span><span class="data-value">${item.barcode}</span></div>
+                    <div class="data-row"><span class="data-label">单号:</span><span class="data-value">${item.orderNo}</span></div>
+                    <div class="data-row"><span class="data-label">零件号:</span><span class="data-value">${item.partNo}</span></div>
+                    <div class="data-row"><span class="data-label">VIN:</span><span class="data-value">${item.vin}</span></div>
+                    <div class="data-row"><span class="data-label">条码:</span><span class="data-value">${item.barcode}</span></div>
                 </div>
                 
                 ${inBox ? `<div class="box-badge">第 ${inBox.boxId} 箱</div>` : ''}
@@ -199,13 +206,14 @@
                     }
                 </div>
             `;
-            // 如果已装箱，则显示在列表最上方
+            // 如果已装箱，置顶显示
             if(inBox) listDiv.prepend(div); else listDiv.appendChild(div);
         });
     }
 
     window.removeItem = (bc) => { delete boxData[bc]; renderList(); };
 
+    // 导出逻辑：将分箱结果写成系统要求的格式
     function exportToTemplate() {
         const packedBarcodes = Object.keys(boxData);
         if(packedBarcodes.length === 0) return alert("请先装箱再导出");
@@ -226,6 +234,7 @@
             };
         });
 
+        // 按箱号升序排序
         templateData.sort((a, b) => a.箱号 - b.箱号);
         const ws = XLSX.utils.json_to_sheet(templateData);
         const wb = XLSX.utils.book_new();
