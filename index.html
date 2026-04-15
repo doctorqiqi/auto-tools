@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>旧件分箱与模板导出系统</title>
+    <title>旧件核对与分箱系统</title>
     <script src="https://cdn.sheetjs.com/xlsx-0.19.3/package/dist/xlsx.full.min.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <style>
@@ -12,7 +12,7 @@
         .card { background: #fff; border-radius: 16px; padding: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-bottom: 12px; }
         .btn { border: none; padding: 12px; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px; }
         .btn-blue { background: var(--ios-blue); color: #fff; width: 100%; }
-        .btn-green { background: var(--ios-green); color: #fff; width: 100%; font-size: 16px; height: 50px; }
+        .btn-green { background: var(--ios-green); color: #fff; width: 100%; font-size: 16px; height: 50px; box-shadow: 0 4px 12px rgba(52, 199, 89, 0.3); }
         .btn-outline { background: #fff; border: 1px solid var(--ios-blue); color: var(--ios-blue); padding: 6px 12px; border-radius: 8px; font-size: 12px; }
         
         .box-control { display: flex; align-items: center; gap: 10px; background: #f0f0f5; padding: 8px 12px; border-radius: 10px; }
@@ -23,10 +23,12 @@
         #reader { width: 100%; border-radius: 12px; overflow: hidden; background: #000; margin-top: 10px; min-height: 180px; position: relative; }
         #reader-status { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #666; font-size: 14px; }
         
-        .list-item { padding: 12px; border-bottom: 0.5px solid #eee; position: relative; display: flex; flex-direction: column; gap: 4px; }
+        /* 列表项显示优化 */
+        .list-item { padding: 12px; border-bottom: 0.5px solid #eee; position: relative; display: flex; flex-direction: column; gap: 6px; }
         .list-item.in-box { border-left: 6px solid var(--ios-green); background: #fafff9; }
         .tag-row { display: flex; flex-wrap: wrap; gap: 5px; }
-        .tag { font-size: 11px; padding: 2px 6px; border-radius: 4px; background: #eee; color: #666; }
+        .tag { font-size: 11px; padding: 2px 6px; border-radius: 4px; background: #eee; color: #444; font-weight: 500; }
+        .full-info { font-size: 12px; color: #333; line-height: 1.4; word-break: break-all; background: #f8f8f8; padding: 4px 8px; border-radius: 6px; margin-top: 2px; }
         .box-badge { position: absolute; right: 12px; top: 12px; background: var(--ios-green); color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: bold; }
 
         #toast { position: fixed; top: 30%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.85); color: white; padding: 16px 24px; border-radius: 12px; z-index: 9999; display: none; text-align: center; width: 60%; }
@@ -62,13 +64,13 @@
             <h3>📋 3. 配件明细</h3>
             <b id="statText" style="color:var(--ios-blue); font-size:18px;">0 / 0</b>
         </div>
-        <input type="text" id="filterInput" class="filter-input" placeholder="🔍 搜索 VIN、车型、零件号...">
+        <input type="text" id="filterInput" class="filter-input" placeholder="🔍 搜索 VIN、条码、件号...">
     </div>
-    <div id="itemList" style="margin-top: 10px; max-height: 350px; overflow-y: auto;"></div>
+    <div id="itemList" style="margin-top: 10px; max-height: 380px; overflow-y: auto;"></div>
 </div>
 
 <div class="footer">
-    <button class="btn btn-green" onclick="exportToTemplate()">💾 导出《旧件信息清单导入模板》</button>
+    <button class="btn btn-green" onclick="exportToTemplate()">💾 导出“旧件信息清单导入模板”</button>
 </div>
 
 <audio id="beepAudio" preload="auto">
@@ -109,12 +111,12 @@
                 series: String(row["车系"] || ''),
                 model: String(row["车型"] || ''),
                 qty: row["数量"] || 1,
-                repairNo: String(row["维修编号"] || ''), // 对应模板的工单编号
+                repairNo: String(row["维修编号"] || ''),
                 type: String(row["返件类型"] || '正常返件'),
                 original: row
             }));
             
-            document.getElementById('statusLog').innerText = `✅ 已成功加载 ${inventory.length} 条数据`;
+            document.getElementById('statusLog').innerText = `✅ 已加载 ${inventory.length} 条数据`;
             renderList();
             document.getElementById('camBtn').style.display = 'block';
         };
@@ -158,7 +160,13 @@
     function renderList(filter = '') {
         const listDiv = document.getElementById('itemList');
         listDiv.innerHTML = '';
-        const filtered = inventory.filter(i => i.vin.includes(filter) || i.partNo.toUpperCase().includes(filter) || i.name.includes(filter));
+        // 增加条码搜索支持
+        const filtered = inventory.filter(i => 
+            i.vin.toUpperCase().includes(filter) || 
+            i.partNo.toUpperCase().includes(filter) || 
+            i.name.includes(filter) ||
+            i.barcode.toUpperCase().includes(filter)
+        );
         
         document.getElementById('statText').innerText = `${Object.keys(boxData).length} / ${inventory.length}`;
 
@@ -167,17 +175,19 @@
             const div = document.createElement('div');
             div.className = `list-item ${inBox ? 'in-box' : ''}`;
             div.innerHTML = `
-                <div style="font-weight:bold; font-size:15px;">${item.name}</div>
+                <div style="font-weight:bold; font-size:15px; color:#1a1a1a;">${item.name}</div>
                 <div class="tag-row">
                     <span class="tag" style="background:#e5f1ff; color:#007aff;">${item.brand}</span>
-                    <span class="tag">VIN: ${item.vin.slice(-8)}</span>
                     <span class="tag">件号: ${item.partNo}</span>
                 </div>
+                <div class="full-info"><strong>VIN:</strong> ${item.vin}</div>
+                <div class="full-info"><strong>条码:</strong> ${item.barcode}</div>
+                
                 ${inBox ? `<div class="box-badge">第 ${inBox.boxId} 箱</div>` : ''}
-                <div style="margin-top:5px;">
+                <div style="margin-top:8px;">
                     ${inBox ? 
                         `<button class="btn-outline" onclick="removeItem('${item.barcode}')">移出箱子</button>` : 
-                        `<button class="btn-outline" onclick="handleSelection('${item.barcode}')">入箱</button>`
+                        `<button class="btn-outline" onclick="handleSelection('${item.barcode}')">确认入箱</button>`
                     }
                 </div>
             `;
@@ -191,7 +201,6 @@
         const packedBarcodes = Object.keys(boxData);
         if(packedBarcodes.length === 0) return alert("请先进行分箱操作");
 
-        // 严格按照《旧件信息清单导入模板.xlsx》标题映射
         const templateData = packedBarcodes.map(bc => {
             const item = inventory.find(i => i.barcode === bc);
             return {
@@ -210,14 +219,14 @@
             };
         });
 
-        // 排序：按箱号排序导出
         templateData.sort((a, b) => a.箱号 - b.箱号);
 
         const ws = XLSX.utils.json_to_sheet(templateData);
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "导入模板");
         
-        XLSX.writeFile(wb, `旧件信息清单_已分${new Set(packedBarcodes.map(b=>boxData[b].boxId)).size}箱.xlsx`);
+        // 固定导出文件名
+        XLSX.writeFile(wb, `旧件信息清单导入模板.xlsx`);
     }
 </script>
 </body>
