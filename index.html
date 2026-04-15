@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>旧件核对与分箱系统</title>
+    <title>旧件全能核对系统</title>
     <script src="https://cdn.sheetjs.com/xlsx-0.19.3/package/dist/xlsx.full.min.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <style>
@@ -12,23 +12,31 @@
         .card { background: #fff; border-radius: 16px; padding: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-bottom: 12px; }
         .btn { border: none; padding: 12px; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px; }
         .btn-blue { background: var(--ios-blue); color: #fff; width: 100%; }
-        .btn-green { background: var(--ios-green); color: #fff; width: 100%; font-size: 16px; height: 50px; box-shadow: 0 4px 12px rgba(52, 199, 89, 0.3); }
+        .btn-green { background: var(--ios-green); color: #fff; width: 100%; font-size: 16px; height: 50px; }
         .btn-outline { background: #fff; border: 1px solid var(--ios-blue); color: var(--ios-blue); padding: 6px 12px; border-radius: 8px; font-size: 12px; }
         
         .box-control { display: flex; align-items: center; gap: 10px; background: #f0f0f5; padding: 8px 12px; border-radius: 10px; }
         .box-input { width: 55px; padding: 6px; border: 1px solid #ddd; border-radius: 6px; text-align: center; font-weight: bold; font-size: 16px; color: var(--ios-blue); }
 
+        /* 搜索框样式 */
         .filter-input { width: 100%; border: 1px solid #d1d1d6; border-radius: 10px; padding: 12px; margin-top: 10px; box-sizing: border-box; font-size: 15px; }
         
         #reader { width: 100%; border-radius: 12px; overflow: hidden; background: #000; margin-top: 10px; min-height: 180px; position: relative; }
         #reader-status { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #666; font-size: 14px; }
         
-        /* 列表项显示优化 */
         .list-item { padding: 12px; border-bottom: 0.5px solid #eee; position: relative; display: flex; flex-direction: column; gap: 6px; }
         .list-item.in-box { border-left: 6px solid var(--ios-green); background: #fafff9; }
+        
+        /* 数据行样式 */
         .tag-row { display: flex; flex-wrap: wrap; gap: 5px; }
         .tag { font-size: 11px; padding: 2px 6px; border-radius: 4px; background: #eee; color: #444; font-weight: 500; }
-        .full-info { font-size: 12px; color: #333; line-height: 1.4; word-break: break-all; background: #f8f8f8; padding: 4px 8px; border-radius: 6px; margin-top: 2px; }
+        .tag-blue { background: #e5f1ff; color: #007aff; }
+        .tag-orange { background: #fff3cd; color: #856404; }
+        
+        .data-label { font-size: 12px; color: #888; margin-right: 4px; }
+        .data-value { font-size: 12px; color: #1a1a1a; word-break: break-all; font-family: monospace; }
+        .info-block { background: #f8f8f8; padding: 6px; border-radius: 8px; margin-top: 2px; border: 0.5px solid #efefef; }
+
         .box-badge { position: absolute; right: 12px; top: 12px; background: var(--ios-green); color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: bold; }
 
         #toast { position: fixed; top: 30%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.85); color: white; padding: 16px 24px; border-radius: 12px; z-index: 9999; display: none; text-align: center; width: 60%; }
@@ -48,7 +56,7 @@
 
 <div class="card">
     <div style="display:flex; justify-content: space-between; align-items: center;">
-        <h3>📦 2. 装箱作业</h3>
+        <h3>📦 2. 分箱装箱</h3>
         <div class="box-control">
             <span>箱号:</span>
             <input type="number" id="boxNumber" class="box-input" value="1" min="1">
@@ -61,10 +69,10 @@
 <div class="card" style="padding: 10px 0;">
     <div style="padding: 0 15px;">
         <div style="display:flex; justify-content: space-between; align-items: center;">
-            <h3>📋 3. 配件明细</h3>
+            <h3>📋 3. 核对明细</h3>
             <b id="statText" style="color:var(--ios-blue); font-size:18px;">0 / 0</b>
         </div>
-        <input type="text" id="filterInput" class="filter-input" placeholder="🔍 搜索 VIN、条码、件号...">
+        <input type="text" id="filterInput" class="filter-input" placeholder="🔍 搜索 品牌/VIN/零件号/条码...">
     </div>
     <div id="itemList" style="margin-top: 10px; max-height: 380px; overflow-y: auto;"></div>
 </div>
@@ -91,6 +99,7 @@
         setTimeout(() => { t.style.display = 'none'; isProcessing = false; }, 2000);
     }
 
+    // 筛选逻辑解释：将用户输入的字符串转换为大写，并与品牌、VIN、件号、条码进行比对
     document.getElementById('filterInput').addEventListener('input', (e) => renderList(e.target.value.toUpperCase()));
 
     document.getElementById('excelInput').addEventListener('change', function(e) {
@@ -108,15 +117,13 @@
                 barcode: String(row["旧件条码"] || '').trim(),
                 vin: String(row["VIN"] || ''),
                 brand: String(row["品牌"] || ''),
-                series: String(row["车系"] || ''),
-                model: String(row["车型"] || ''),
                 qty: row["数量"] || 1,
                 repairNo: String(row["维修编号"] || ''),
-                type: String(row["返件类型"] || '正常返件'),
+                model: String(row["车型"] || ''),
                 original: row
             }));
             
-            document.getElementById('statusLog').innerText = `✅ 已加载 ${inventory.length} 条数据`;
+            document.getElementById('statusLog').innerText = `✅ 已成功加载 ${inventory.length} 条数据`;
             renderList();
             document.getElementById('camBtn').style.display = 'block';
         };
@@ -141,31 +148,28 @@
 
     function handleSelection(barcode) {
         const item = inventory.find(i => i.barcode === barcode);
-        if(!item) { isProcessing = true; showToast("❌ 条码不在清单中"); return; }
-        
-        if(boxData[barcode]) {
-            isProcessing = true;
-            showToast(`⚠️ 已在第 ${boxData[barcode].boxId} 箱`);
-            return;
-        }
+        if(!item) { isProcessing = true; showToast("❌ 列表无此条码"); return; }
+        if(boxData[barcode]) { isProcessing = true; showToast(`⚠️ 已在第 ${boxData[barcode].boxId} 箱`); return; }
 
         const currentBox = document.getElementById('boxNumber').value;
         boxData[barcode] = { boxId: currentBox };
-        
         beep.play();
         if (navigator.vibrate) navigator.vibrate(80);
         renderList(document.getElementById('filterInput').value.toUpperCase());
     }
 
+    // 渲染逻辑解释：根据筛选条件生成列表，并显性展示品牌、数量等必填信息
     function renderList(filter = '') {
         const listDiv = document.getElementById('itemList');
         listDiv.innerHTML = '';
-        // 增加条码搜索支持
+        
+        // 支持全字段筛选：品牌、VIN、件号、条码、名称
         const filtered = inventory.filter(i => 
+            i.brand.toUpperCase().includes(filter) ||
             i.vin.toUpperCase().includes(filter) || 
             i.partNo.toUpperCase().includes(filter) || 
-            i.name.includes(filter) ||
-            i.barcode.toUpperCase().includes(filter)
+            i.barcode.toUpperCase().includes(filter) ||
+            i.name.includes(filter)
         );
         
         document.getElementById('statText').innerText = `${Object.keys(boxData).length} / ${inventory.length}`;
@@ -177,20 +181,25 @@
             div.innerHTML = `
                 <div style="font-weight:bold; font-size:15px; color:#1a1a1a;">${item.name}</div>
                 <div class="tag-row">
-                    <span class="tag" style="background:#e5f1ff; color:#007aff;">${item.brand}</span>
-                    <span class="tag">件号: ${item.partNo}</span>
+                    <span class="tag tag-blue">${item.brand}</span>
+                    <span class="tag tag-orange">数量: ${item.qty}</span>
                 </div>
-                <div class="full-info"><strong>VIN:</strong> ${item.vin}</div>
-                <div class="full-info"><strong>条码:</strong> ${item.barcode}</div>
+                
+                <div class="info-block">
+                    <div><span class="data-label">零件号:</span><span class="data-value">${item.partNo}</span></div>
+                    <div style="margin-top:4px;"><span class="data-label">VIN:</span><span class="data-value">${item.vin}</span></div>
+                    <div style="margin-top:4px;"><span class="data-label">条码:</span><span class="data-value">${item.barcode}</span></div>
+                </div>
                 
                 ${inBox ? `<div class="box-badge">第 ${inBox.boxId} 箱</div>` : ''}
                 <div style="margin-top:8px;">
                     ${inBox ? 
                         `<button class="btn-outline" onclick="removeItem('${item.barcode}')">移出箱子</button>` : 
-                        `<button class="btn-outline" onclick="handleSelection('${item.barcode}')">确认入箱</button>`
+                        `<button class="btn-outline" onclick="handleSelection('${item.barcode}')">确认装箱</button>`
                     }
                 </div>
             `;
+            // 如果已装箱，则显示在列表最上方
             if(inBox) listDiv.prepend(div); else listDiv.appendChild(div);
         });
     }
@@ -199,7 +208,7 @@
 
     function exportToTemplate() {
         const packedBarcodes = Object.keys(boxData);
-        if(packedBarcodes.length === 0) return alert("请先进行分箱操作");
+        if(packedBarcodes.length === 0) return alert("请先装箱再导出");
 
         const templateData = packedBarcodes.map(bc => {
             const item = inventory.find(i => i.barcode === bc);
@@ -211,21 +220,16 @@
                 "旧件条码(必填)": item.barcode,
                 "工单编号": item.repairNo,
                 "旧件数量(必填)": item.qty,
-                "返件类型": item.type,
                 "VIN": item.vin,
                 "品牌": item.brand,
-                "车系": item.series,
                 "车型": item.model
             };
         });
 
         templateData.sort((a, b) => a.箱号 - b.箱号);
-
         const ws = XLSX.utils.json_to_sheet(templateData);
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "导入模板");
-        
-        // 固定导出文件名
         XLSX.writeFile(wb, `旧件信息清单导入模板.xlsx`);
     }
 </script>
