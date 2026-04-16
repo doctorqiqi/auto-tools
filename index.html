@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>旧件核对分箱系统 V5</title>
+    <title>旧件核对分箱系统 V6</title>
     <script src="https://cdn.sheetjs.com/xlsx-0.19.3/package/dist/xlsx.full.min.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <style>
-        /* 基础样式适配 iPhone 全屏 */
+        /* 界面样式：保持 iOS 清爽风格 */
         :root { --ios-blue: #007aff; --ios-green: #34c759; --safe-top: env(safe-area-inset-top); }
         body { font-family: -apple-system, sans-serif; background: #f2f2f7; margin: 0; padding: calc(var(--safe-top) + 10px) 16px 220px 16px; }
         .card { background: #fff; border-radius: 16px; padding: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-bottom: 12px; }
@@ -16,18 +16,14 @@
         .btn-green { background: var(--ios-green); color: #fff; width: 100%; font-size: 16px; height: 50px; }
         .btn-outline { background: #fff; border: 1px solid var(--ios-blue); color: var(--ios-blue); padding: 6px 12px; border-radius: 8px; font-size: 12px; }
         
-        /* 顶部箱号控制 */
         .box-control { display: flex; align-items: center; gap: 10px; background: #f0f0f5; padding: 8px 12px; border-radius: 10px; }
         .box-input { width: 55px; padding: 6px; border: 1px solid #ddd; border-radius: 6px; text-align: center; font-weight: bold; font-size: 16px; color: var(--ios-blue); }
 
-        /* 搜索框 */
         .filter-input { width: 100%; border: 1px solid #d1d1d6; border-radius: 10px; padding: 12px; margin-top: 10px; box-sizing: border-box; font-size: 15px; }
         
-        /* 扫码区 */
         #reader { width: 100%; border-radius: 12px; overflow: hidden; background: #000; margin-top: 10px; min-height: 180px; position: relative; }
         #reader-status { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #666; font-size: 14px; }
         
-        /* 列表项 */
         .list-item { padding: 12px; border-bottom: 0.5px solid #eee; position: relative; display: flex; flex-direction: column; gap: 6px; }
         .list-item.in-box { border-left: 6px solid var(--ios-green); background: #fafff9; }
         
@@ -36,10 +32,9 @@
         .tag-blue { background: #e5f1ff; color: #007aff; }
         .tag-orange { background: #fff3cd; color: #856404; }
         
-        /* 详情数据块 */
         .info-block { background: #f8f8f8; padding: 8px; border-radius: 8px; margin-top: 2px; border: 0.5px solid #efefef; }
         .data-row { display: flex; margin-bottom: 4px; font-size: 12px; }
-        .data-label { color: #888; width: 75px; flex-shrink: 0; } /* 标签宽度微调以对齐 */
+        .data-label { color: #888; width: 75px; flex-shrink: 0; }
         .data-value { color: #1a1a1a; word-break: break-all; font-family: monospace; font-weight: 500; }
 
         .box-badge { position: absolute; right: 12px; top: 12px; background: var(--ios-green); color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: bold; }
@@ -56,7 +51,7 @@
     <h3>📂 1. 数据导入</h3>
     <input type="file" id="excelInput" accept=".xlsx, .xls, .csv" style="display: none;">
     <button class="btn btn-blue" onclick="document.getElementById('excelInput').click()">选择《待回运旧件清单》</button>
-    <div id="statusLog" style="text-align:center; font-size:12px; color:#999; margin-top:8px;">等待导入...</div>
+    <div id="statusLog" style="text-align:center; font-size:12px; color:#999; margin-top:8px;">等待导入数据...</div>
 </div>
 
 <div class="card">
@@ -91,24 +86,24 @@
 </audio>
 
 <script>
-    let inventory = []; // 全局原始数据容器
-    let boxData = {};   // 存储装箱映射：条码 -> {箱号}
+    let inventory = [];
+    let boxData = {}; 
     let isProcessing = false;
     let cameraActive = false;
     const html5QrCode = new Html5Qrcode("reader");
     const beep = document.getElementById('beepAudio');
 
-    // 显示轻提示
+    // 弹窗提示逻辑
     function showToast(msg) {
         const t = document.getElementById('toast');
         t.innerText = msg; t.style.display = 'block';
         setTimeout(() => { t.style.display = 'none'; isProcessing = false; }, 2000);
     }
 
-    // 搜索实时联动：输入任何信息即刻过滤列表
+    // 搜索实时过滤
     document.getElementById('filterInput').addEventListener('input', (e) => renderList(e.target.value.toUpperCase()));
 
-    // Excel读取与数据标准化
+    // 数据导入逻辑
     document.getElementById('excelInput').addEventListener('change', function(e) {
         const file = e.target.files[0];
         if (!file) return;
@@ -117,7 +112,6 @@
             const workbook = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
             const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
             
-            // 数据解析说明：确保内部变量名与显示名称对应
             inventory = json.map(row => ({
                 orderNo: String(row["保修单号"] || ''),
                 partNo: String(row["旧件编号"] || ''),
@@ -131,16 +125,19 @@
                 original: row
             }));
             
-            document.getElementById('statusLog').innerText = `✅ 成功加载 ${inventory.length} 条清单`;
+            document.getElementById('statusLog').innerText = `✅ 成功加载 ${inventory.length} 条数据`;
             renderList();
             document.getElementById('camBtn').style.display = 'block';
         };
         reader.readAsArrayBuffer(file);
     });
 
-    // 摄像头控制逻辑
+    // 相机开关与提示音激活逻辑
     document.getElementById('camBtn').addEventListener('click', function() {
         if(!cameraActive) {
+            // 关键：在用户点击按钮时播放静音音频，解锁手机音频限制
+            beep.play().then(() => beep.pause()).catch(() => {});
+            
             document.getElementById('reader-status').style.display = 'none';
             html5QrCode.start({ facingMode: "environment" }, { fps: 25, qrbox: 250 }, (code) => {
                 if(isProcessing) return;
@@ -155,7 +152,7 @@
         }
     });
 
-    // 匹配扫描结果
+    // 扫描匹配逻辑：成功后触发声音和震动
     function handleSelection(barcode) {
         const item = inventory.find(i => i.barcode === barcode);
         if(!item) { isProcessing = true; showToast("❌ 错误：条码不在清单中"); return; }
@@ -163,17 +160,22 @@
 
         const currentBox = document.getElementById('boxNumber').value;
         boxData[barcode] = { boxId: currentBox };
-        beep.play();
+        
+        // 🔊 触发提示音
+        beep.currentTime = 0; // 从头开始播放
+        beep.play().catch(err => console.log("音频播放失败", err));
+
+        // 📳 触发震动反馈 (80毫秒)
         if (navigator.vibrate) navigator.vibrate(80);
+
         renderList(document.getElementById('filterInput').value.toUpperCase());
     }
 
-    // 界面显示渲染函数：核心显性化展示逻辑
+    // 列表渲染逻辑
     function renderList(filter = '') {
         const listDiv = document.getElementById('itemList');
         listDiv.innerHTML = '';
         
-        // 筛选逻辑说明：支持保修单号、品牌、VIN、旧件编号、旧件条码 全面模糊搜索
         const filtered = inventory.filter(i => 
             i.orderNo.toUpperCase().includes(filter) || 
             i.brand.toUpperCase().includes(filter) ||
@@ -211,19 +213,17 @@
                     }
                 </div>
             `;
-            // 置顶已装箱项目，方便核对
             if(inBox) listDiv.prepend(div); else listDiv.appendChild(div);
         });
     }
 
     window.removeItem = (bc) => { delete boxData[bc]; renderList(); };
 
-    // 导出文件：自动将分箱结果写成Excel
+    // 导出 Excel 逻辑
     function exportToTemplate() {
         const packedBarcodes = Object.keys(boxData);
         if(packedBarcodes.length === 0) return alert("请至少装入一个配件再导出");
 
-        // 构建数据说明：标题严格对应系统导入模板的要求
         const templateData = packedBarcodes.map(bc => {
             const item = inventory.find(i => i.barcode === bc);
             return {
