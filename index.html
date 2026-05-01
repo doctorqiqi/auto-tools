@@ -132,25 +132,57 @@
         reader.readAsArrayBuffer(file);
     });
 
-    // 相机开关与提示音激活逻辑
-    document.getElementById('camBtn').addEventListener('click', function() {
-        if(!cameraActive) {
-            // 关键：在用户点击按钮时播放静音音频，解锁手机音频限制
-            beep.play().then(() => beep.pause()).catch(() => {});
-            
+    // ... (前面的样式和 HTML 保持不变)
+
+// 相机开关控制逻辑 - 修复无法二次激活的问题
+document.getElementById('camBtn').addEventListener('click', async function() {
+    if(!cameraActive) {
+        // 1. 激活提示音权限
+        beep.play().then(() => beep.pause()).catch(() => {});
+        
+        try {
             document.getElementById('reader-status').style.display = 'none';
-            html5QrCode.start({ facingMode: "environment" }, { fps: 25, qrbox: 250 }, (code) => {
-                if(isProcessing) return;
-                handleSelection(code.trim());
-            });
-            this.innerText = "🛑 暂停相机"; cameraActive = true;
-        } else {
-            html5QrCode.stop().then(() => {
-                document.getElementById('reader-status').style.display = 'block';
-                this.innerText = "📷 开启相机"; cameraActive = false;
-            });
+            
+            // 2. 启动相机
+            await html5QrCode.start(
+                { facingMode: "environment" }, 
+                { fps: 25, qrbox: 250 }, 
+                (code) => {
+                    if(isProcessing) return;
+                    handleSelection(code.trim());
+                }
+            );
+            
+            this.innerText = "🛑 暂停相机";
+            this.classList.replace('btn-blue', 'btn-outline'); // 视觉反馈：暂停时变镂空
+            cameraActive = true;
+            
+        } catch (err) {
+            console.error("相机启动失败:", err);
+            showToast("❌ 无法启动相机，请刷新页面或检查权限");
         }
-    });
+    } else {
+        // 3. 彻底停止并释放资源
+        html5QrCode.stop().then(() => {
+            // 关键：清除内部状态和 DOM 画布
+            html5QrCode.clear(); 
+            
+            document.getElementById('reader-status').style.display = 'block';
+            document.getElementById('reader-status').innerText = "相机已关闭";
+            
+            this.innerText = "📷 开启相机";
+            this.classList.replace('btn-outline', 'btn-blue');
+            cameraActive = false;
+        }).catch(err => {
+            console.error("停止相机失败:", err);
+            // 强制重置状态，防止卡死
+            cameraActive = false;
+            location.reload(); // 如果硬件死锁，备选方案是刷新页面
+        });
+    }
+});
+
+// ... (后续 handleSelection 等逻辑保持不变)
 
     // 扫描匹配逻辑：成功后触发声音和震动
     function handleSelection(barcode) {
