@@ -3,15 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>旧件核对分箱系统 V6</title>
+    <title>旧件核对分箱系统 V7</title>
     <script src="https://cdn.sheetjs.com/xlsx-0.19.3/package/dist/xlsx.full.min.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <style>
-        /* 界面样式：保持 iOS 清爽风格 */
         :root { --ios-blue: #007aff; --ios-green: #34c759; --safe-top: env(safe-area-inset-top); }
         body { font-family: -apple-system, sans-serif; background: #f2f2f7; margin: 0; padding: calc(var(--safe-top) + 10px) 16px 220px 16px; }
         .card { background: #fff; border-radius: 16px; padding: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-bottom: 12px; }
-        .btn { border: none; padding: 12px; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px; }
+        .btn { border: none; padding: 12px; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px; transition: opacity 0.2s; }
+        .btn:active { opacity: 0.7; }
         .btn-blue { background: var(--ios-blue); color: #fff; width: 100%; }
         .btn-green { background: var(--ios-green); color: #fff; width: 100%; font-size: 16px; height: 50px; }
         .btn-outline { background: #fff; border: 1px solid var(--ios-blue); color: var(--ios-blue); padding: 6px 12px; border-radius: 8px; font-size: 12px; }
@@ -22,7 +22,7 @@
         .filter-input { width: 100%; border: 1px solid #d1d1d6; border-radius: 10px; padding: 12px; margin-top: 10px; box-sizing: border-box; font-size: 15px; }
         
         #reader { width: 100%; border-radius: 12px; overflow: hidden; background: #000; margin-top: 10px; min-height: 180px; position: relative; }
-        #reader-status { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #666; font-size: 14px; }
+        #reader-status { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #666; font-size: 14px; text-align: center; }
         
         .list-item { padding: 12px; border-bottom: 0.5px solid #eee; position: relative; display: flex; flex-direction: column; gap: 6px; }
         .list-item.in-box { border-left: 6px solid var(--ios-green); background: #fafff9; }
@@ -47,6 +47,7 @@
 
 <div id="toast"></div>
 
+<!-- 1. 导入区 -->
 <div class="card">
     <h3>📂 1. 数据导入</h3>
     <input type="file" id="excelInput" accept=".xlsx, .xls, .csv" style="display: none;">
@@ -54,6 +55,7 @@
     <div id="statusLog" style="text-align:center; font-size:12px; color:#999; margin-top:8px;">等待导入数据...</div>
 </div>
 
+<!-- 2. 装箱区 -->
 <div class="card">
     <div style="display:flex; justify-content: space-between; align-items: center;">
         <h3>📦 2. 装箱操作</h3>
@@ -63,24 +65,26 @@
         </div>
     </div>
     <div id="reader"><div id="reader-status">相机未启动</div></div>
-    <button id="camBtn" class="btn btn-blue" style="margin-top:10px; display:none;">开启扫码相机</button>
+    <button id="camBtn" class="btn btn-blue" style="margin-top:10px; display:none;">📷 开启扫码相机</button>
 </div>
 
+<!-- 3. 列表区 -->
 <div class="card" style="padding: 10px 0;">
     <div style="padding: 0 15px;">
         <div style="display:flex; justify-content: space-between; align-items: center;">
             <h3>📋 3. 核对明细</h3>
             <b id="statText" style="color:var(--ios-blue); font-size:18px;">0 / 0</b>
         </div>
-        <input type="text" id="filterInput" class="filter-input" placeholder="🔍 搜索 保修单号/品牌/VIN/件号/旧件条码...">
+        <input type="text" id="filterInput" class="filter-input" placeholder="🔍 搜索 保修单号/旧件条码/VIN/品牌...">
     </div>
-    <div id="itemList" style="margin-top: 10px; max-height: 380px; overflow-y: auto;"></div>
+    <div id="itemList" style="margin-top: 10px; max-height: 350px; overflow-y: auto;"></div>
 </div>
 
 <div class="footer">
     <button class="btn btn-green" onclick="exportToTemplate()">💾 导出“旧件信息清单导入模板”</button>
 </div>
 
+<!-- 扫描成功提示音 -->
 <audio id="beepAudio" preload="auto">
     <source src="https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3" type="audio/mpeg">
 </audio>
@@ -90,20 +94,18 @@
     let boxData = {}; 
     let isProcessing = false;
     let cameraActive = false;
-    const html5QrCode = new Html5Qrcode("reader");
+    let html5QrCode = new Html5Qrcode("reader"); // 初始化实例
     const beep = document.getElementById('beepAudio');
 
-    // 弹窗提示逻辑
     function showToast(msg) {
         const t = document.getElementById('toast');
         t.innerText = msg; t.style.display = 'block';
         setTimeout(() => { t.style.display = 'none'; isProcessing = false; }, 2000);
     }
 
-    // 搜索实时过滤
     document.getElementById('filterInput').addEventListener('input', (e) => renderList(e.target.value.toUpperCase()));
 
-    // 数据导入逻辑
+    // 数据导入
     document.getElementById('excelInput').addEventListener('change', function(e) {
         const file = e.target.files[0];
         if (!file) return;
@@ -125,53 +127,80 @@
                 original: row
             }));
             
-            document.getElementById('statusLog').innerText = `✅ 成功加载 ${inventory.length} 条数据`;
+            document.getElementById('statusLog').innerText = `✅ 已加载 ${inventory.length} 条数据`;
             renderList();
             document.getElementById('camBtn').style.display = 'block';
         };
         reader.readAsArrayBuffer(file);
     });
 
-    // 相机开关与提示音激活逻辑
-    document.getElementById('camBtn').addEventListener('click', function() {
+    // 核心改进：相机开关逻辑，解决无法二次激活
+    document.getElementById('camBtn').addEventListener('click', async function() {
+        const btn = this;
         if(!cameraActive) {
-            // 关键：在用户点击按钮时播放静音音频，解锁手机音频限制
+            // 解锁音频
             beep.play().then(() => beep.pause()).catch(() => {});
             
-            document.getElementById('reader-status').style.display = 'none';
-            html5QrCode.start({ facingMode: "environment" }, { fps: 25, qrbox: 250 }, (code) => {
-                if(isProcessing) return;
-                handleSelection(code.trim());
-            });
-            this.innerText = "🛑 暂停相机"; cameraActive = true;
+            try {
+                document.getElementById('reader-status').style.display = 'none';
+                await html5QrCode.start(
+                    { facingMode: "environment" }, 
+                    { fps: 20, qrbox: { width: 250, height: 150 } }, 
+                    (code) => {
+                        if(isProcessing) return;
+                        handleSelection(code.trim());
+                    }
+                );
+                btn.innerText = "🛑 暂停相机";
+                btn.style.background = "#ff3b30"; // 暂停时变红提醒
+                cameraActive = true;
+            } catch (err) {
+                console.error(err);
+                showToast("无法启动相机，请刷新或检查权限");
+            }
         } else {
-            html5QrCode.stop().then(() => {
+            // 彻底销毁并重置
+            try {
+                await html5QrCode.stop();
+                html5QrCode.clear(); 
                 document.getElementById('reader-status').style.display = 'block';
-                this.innerText = "📷 开启相机"; cameraActive = false;
-            });
+                document.getElementById('reader-status').innerText = "相机已暂停";
+                btn.innerText = "📷 开启扫码相机";
+                btn.style.background = "var(--ios-blue)";
+                cameraActive = false;
+            } catch (err) {
+                console.error("停止失败", err);
+                // 强制重置
+                cameraActive = false;
+                location.reload(); 
+            }
         }
     });
 
-    // 扫描匹配逻辑：成功后触发声音和震动
     function handleSelection(barcode) {
         const item = inventory.find(i => i.barcode === barcode);
-        if(!item) { isProcessing = true; showToast("❌ 错误：条码不在清单中"); return; }
-        if(boxData[barcode]) { isProcessing = true; showToast(`⚠️ 已装箱：第 ${boxData[barcode].boxId} 箱`); return; }
+        if(!item) { 
+            isProcessing = true; 
+            showToast("❌ 错误：条码不在清单中"); 
+            return; 
+        }
+        if(boxData[barcode]) { 
+            isProcessing = true; 
+            showToast(`⚠️ 已在第 ${boxData[barcode].boxId} 箱`); 
+            return; 
+        }
 
         const currentBox = document.getElementById('boxNumber').value;
         boxData[barcode] = { boxId: currentBox };
         
-        // 🔊 触发提示音
-        beep.currentTime = 0; // 从头开始播放
-        beep.play().catch(err => console.log("音频播放失败", err));
-
-        // 📳 触发震动反馈 (80毫秒)
+        // 提示音与震动
+        beep.currentTime = 0;
+        beep.play().catch(() => {});
         if (navigator.vibrate) navigator.vibrate(80);
 
         renderList(document.getElementById('filterInput').value.toUpperCase());
     }
 
-    // 列表渲染逻辑
     function renderList(filter = '') {
         const listDiv = document.getElementById('itemList');
         listDiv.innerHTML = '';
@@ -192,19 +221,17 @@
             const div = document.createElement('div');
             div.className = `list-item ${inBox ? 'in-box' : ''}`;
             div.innerHTML = `
-                <div style="font-weight:bold; font-size:15px; color:#1a1a1a;">${item.name}</div>
+                <div style="font-weight:bold; font-size:15px;">${item.name}</div>
                 <div class="tag-row">
                     <span class="tag tag-blue">${item.brand}</span>
                     <span class="tag tag-orange">数量: ${item.qty}</span>
                 </div>
-                
                 <div class="info-block">
                     <div class="data-row"><span class="data-label">保修单号:</span><span class="data-value">${item.orderNo}</span></div>
                     <div class="data-row"><span class="data-label">旧件编号:</span><span class="data-value">${item.partNo}</span></div>
                     <div class="data-row"><span class="data-label">VIN:</span><span class="data-value">${item.vin}</span></div>
                     <div class="data-row"><span class="data-label">旧件条码:</span><span class="data-value">${item.barcode}</span></div>
                 </div>
-                
                 ${inBox ? `<div class="box-badge">第 ${inBox.boxId} 箱</div>` : ''}
                 <div style="margin-top:8px;">
                     ${inBox ? 
@@ -219,10 +246,9 @@
 
     window.removeItem = (bc) => { delete boxData[bc]; renderList(); };
 
-    // 导出 Excel 逻辑
     function exportToTemplate() {
         const packedBarcodes = Object.keys(boxData);
-        if(packedBarcodes.length === 0) return alert("请至少装入一个配件再导出");
+        if(packedBarcodes.length === 0) return alert("请先装箱");
 
         const templateData = packedBarcodes.map(bc => {
             const item = inventory.find(i => i.barcode === bc);
@@ -244,7 +270,7 @@
         const ws = XLSX.utils.json_to_sheet(templateData);
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "导入模板");
-        XLSX.writeFile(wb, `旧件信息清单导入模板.xlsx`);
+        XLSX.writeFile(wb, `分箱结果_${new Date().toLocaleDateString()}.xlsx`);
     }
 </script>
 </body>
