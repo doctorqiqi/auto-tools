@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>旧件核对分箱 V10</title>
+    <title>旧件核对分箱 V11</title>
     <script src="https://cdn.sheetjs.com/xlsx-0.19.3/package/dist/xlsx.full.min.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <style>
@@ -30,6 +30,7 @@
         .tag-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
         .tag { font-size: 11px; padding: 2px 8px; border-radius: 4px; background: #eee; color: #444; font-weight: 500; }
         .tag-blue { background: #e5f1ff; color: #007aff; }
+        .tag-orange { background: #fff3cd; color: #856404; }
         .qty-badge { background: var(--ios-orange); color: white; border-radius: 50%; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold; box-shadow: 0 2px 4px rgba(255,149,0,0.3); }
 
         .info-block { background: #f8f8f8; padding: 10px; border-radius: 8px; margin-top: 2px; border: 0.5px solid #efefef; }
@@ -37,9 +38,9 @@
         .data-label { color: #888; width: 85px; flex-shrink: 0; }
         .data-value { color: #1a1a1a; word-break: break-all; font-family: monospace; font-weight: 600; }
 
-        .box-badge { position: absolute; right: 12px; top: 12px; background: var(--ios-green); color: white; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: bold; box-shadow: 0 2px 5px rgba(52,199,89,0.3); }
+        .box-badge { position: absolute; right: 12px; top: 12px; background: var(--ios-green); color: white; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: bold; }
 
-        #toast { position: fixed; top: 40%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.85); color: white; padding: 16px 24px; border-radius: 12px; z-index: 9999; display: none; text-align: center; width: 70%; line-height: 1.5; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+        #toast { position: fixed; top: 40%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.85); color: white; padding: 16px 24px; border-radius: 12px; z-index: 9999; display: none; text-align: center; width: 70%; line-height: 1.5; }
         .footer { position: fixed; bottom: 0; left: 0; right: 0; padding: 15px 20px calc(var(--safe-bottom) + 15px); background: rgba(255,255,255,0.95); backdrop-filter: blur(15px); border-top: 0.5px solid #ccc; z-index: 1000; }
     </style>
 </head>
@@ -61,7 +62,7 @@
     <div style="display:flex; justify-content: space-between; align-items: center;">
         <h3 style="margin:0;">📦 2. 装箱操作</h3>
         <div class="box-control">
-            <span>当前箱号:</span>
+            <span>箱号:</span>
             <input type="number" id="boxNumber" class="box-input" value="1" min="1">
         </div>
     </div>
@@ -77,9 +78,7 @@
         </div>
         <input type="text" id="filterInput" class="filter-input" placeholder="🔍 搜索 品牌/VIN/编码/条码/名称...">
     </div>
-    <div id="itemList" style="margin-top: 10px; max-height: 380px; overflow-y: auto;">
-        <p style="text-align: center; color: #ccc; padding: 30px;">等待上传清单...</p>
-    </div>
+    <div id="itemList" style="margin-top: 10px; max-height: 380px; overflow-y: auto;"></div>
 </div>
 
 <div class="footer">
@@ -91,8 +90,8 @@
 </audio>
 
 <script>
-    let inventory = JSON.parse(localStorage.getItem('v10_inv')) || [];
-    let boxData = JSON.parse(localStorage.getItem('v10_box')) || {}; 
+    let inventory = JSON.parse(localStorage.getItem('v11_inv')) || [];
+    let boxData = JSON.parse(localStorage.getItem('v11_box')) || {}; 
     let html5QrCode = null;
     let isProcessing = false;
     let cameraActive = false;
@@ -119,7 +118,6 @@
         }
     }
 
-    // 数据导入 (映射字段)
     document.getElementById('excelInput').addEventListener('change', function(e) {
         const file = e.target.files[0];
         if (!file) return;
@@ -127,7 +125,6 @@
         reader.onload = function(e) {
             const workbook = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
             const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
-            
             const findK = (row, keys) => Object.keys(row).find(k => keys.some(s => k.includes(s)));
 
             inventory = json.map(row => ({
@@ -143,7 +140,7 @@
                 original: row
             })).filter(i => i.barcode !== '');
             
-            localStorage.setItem('v10_inv', JSON.stringify(inventory));
+            localStorage.setItem('v11_inv', JSON.stringify(inventory));
             document.getElementById('statusLog').innerText = `✅ 成功导入 ${inventory.length} 条数据`;
             renderList();
             document.getElementById('camBtn').style.display = 'flex';
@@ -151,7 +148,6 @@
         reader.readAsArrayBuffer(file);
     });
 
-    // 相机智控逻辑
     async function stopScanner() {
         if (html5QrCode) {
             try {
@@ -164,14 +160,14 @@
             stream.getTracks().forEach(track => track.stop());
         } catch (e) {}
         html5QrCode = null;
-        document.getElementById('reader').innerHTML = '<div id="reader-status">相机已安全关闭</div>';
+        document.getElementById('reader').innerHTML = '<div id="reader-status">相机已关闭</div>';
     }
 
     document.getElementById('camBtn').addEventListener('click', async function() {
         const btn = this;
         if(!cameraActive) {
             btn.disabled = true;
-            btn.innerText = "⏳ 启动硬件中...";
+            btn.innerText = "⏳ 启动硬件...";
             await stopScanner();
             await new Promise(r => setTimeout(r, 400));
             beep.play().then(() => beep.pause()).catch(() => {});
@@ -186,7 +182,7 @@
                 btn.innerText = "🛑 暂停相机";
                 btn.className = "btn btn-red";
             } catch (err) {
-                showToast("无法开启相机，请检查权限");
+                showToast("相机启动失败，请检查权限");
                 btn.innerText = "开启扫码相机";
             } finally { btn.disabled = false; }
         } else {
@@ -202,13 +198,13 @@
 
     function handleSelection(barcode) {
         const item = inventory.find(i => i.barcode === barcode);
-        if(!item) { isProcessing = true; showToast("❌ 条码不在清单中\n" + barcode); return; }
+        if(!item) { isProcessing = true; showToast("❌ 错误：条码不在清单中\n" + barcode); return; }
         if(boxData[barcode]) { isProcessing = true; showToast(`⚠️ 已装箱：第 ${boxData[barcode].boxId} 箱`); return; }
 
         isProcessing = true;
         const currentBox = document.getElementById('boxNumber').value || "1";
         boxData[barcode] = { boxId: currentBox };
-        localStorage.setItem('v10_box', JSON.stringify(boxData));
+        localStorage.setItem('v11_box', JSON.stringify(boxData));
         
         beep.currentTime = 0;
         beep.play().catch(()=>{});
@@ -224,11 +220,8 @@
         const f = filter.toUpperCase();
         
         const filtered = inventory.filter(i => 
-            i.brand.toUpperCase().includes(f) ||
-            i.vin.toUpperCase().includes(f) || 
-            i.partNo.toUpperCase().includes(f) || 
-            i.barcode.toUpperCase().includes(f) ||
-            i.name.includes(f)
+            i.brand.toUpperCase().includes(f) || i.vin.toUpperCase().includes(f) || 
+            i.partNo.toUpperCase().includes(f) || i.barcode.toUpperCase().includes(f) || i.name.includes(f)
         );
         
         document.getElementById('statText').innerText = `${Object.keys(boxData).length} / ${inventory.length}`;
@@ -240,13 +233,14 @@
             div.innerHTML = `
                 <div style="display:flex; justify-content:space-between; align-items:flex-start;">
                     <div style="font-weight:bold; font-size:16px; color:#1c1c1e;">${item.name}</div>
-                    <div class="qty-badge" title="数量">${item.qty}</div>
+                    <div class="qty-badge">${item.qty}</div>
                 </div>
                 <div class="tag-row">
                     <span class="tag tag-blue">${item.brand}</span>
-                    <span class="tag">VIN末位: ${item.vin.slice(-6)}</span>
+                    <span class="tag tag-orange">配件数量: ${item.qty}</span>
                 </div>
                 <div class="info-block">
+                    <div class="data-row"><span class="data-label">保修单号:</span><span class="data-value">${item.orderNo}</span></div>
                     <div class="data-row"><span class="data-label">旧件编码:</span><span class="data-value">${item.partNo}</span></div>
                     <div class="data-row"><span class="data-label">旧件条码:</span><span class="data-value">${item.barcode}</span></div>
                     <div class="data-row"><span class="data-label">VIN全号:</span><span class="data-value">${item.vin}</span></div>
@@ -265,18 +259,17 @@
 
     window.removeItem = (bc) => { 
         delete boxData[bc]; 
-        localStorage.setItem('v10_box', JSON.stringify(boxData));
+        localStorage.setItem('v11_box', JSON.stringify(boxData));
         renderList(document.getElementById('filterInput').value.toUpperCase()); 
     };
 
     document.getElementById('filterInput').addEventListener('input', (e) => renderList(e.target.value));
 
-    // 导出 (固定模板格式)
     function exportToTemplate() {
         const packedBarcodes = Object.keys(boxData);
-        if(packedBarcodes.length === 0) return alert("请先装箱再导出");
+        if(packedBarcodes.length === 0) return alert("请至少装入一个配件再导出");
 
-        const templateData = packedBarcodes.map(bc => {
+        const data = packedBarcodes.map(bc => {
             const item = inventory.find(i => i.barcode === bc);
             return {
                 "箱号": boxData[bc].boxId,
@@ -292,10 +285,10 @@
             };
         });
 
-        const ws = XLSX.utils.json_to_sheet(templateData);
+        const ws = XLSX.utils.json_to_sheet(data);
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "导入模板");
-        XLSX.writeFile(wb, `旧件分箱导入模板_${new Date().getTime()}.xlsx`);
+        XLSX.writeFile(wb, `旧件信息清单导入模板_2.xlsx`);
     }
 </script>
 </body>
