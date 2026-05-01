@@ -3,10 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>旧件核对分箱系统 V6-Fix</title>
+    <title>旧件核对分箱系统 V6</title>
     <script src="https://cdn.sheetjs.com/xlsx-0.19.3/package/dist/xlsx.full.min.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <style>
+        /* 界面样式：保持 iOS 清爽风格 */
         :root { --ios-blue: #007aff; --ios-green: #34c759; --safe-top: env(safe-area-inset-top); }
         body { font-family: -apple-system, sans-serif; background: #f2f2f7; margin: 0; padding: calc(var(--safe-top) + 10px) 16px 220px 16px; }
         .card { background: #fff; border-radius: 16px; padding: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-bottom: 12px; }
@@ -14,18 +15,30 @@
         .btn-blue { background: var(--ios-blue); color: #fff; width: 100%; }
         .btn-green { background: var(--ios-green); color: #fff; width: 100%; font-size: 16px; height: 50px; }
         .btn-outline { background: #fff; border: 1px solid var(--ios-blue); color: var(--ios-blue); padding: 6px 12px; border-radius: 8px; font-size: 12px; }
+        
         .box-control { display: flex; align-items: center; gap: 10px; background: #f0f0f5; padding: 8px 12px; border-radius: 10px; }
         .box-input { width: 55px; padding: 6px; border: 1px solid #ddd; border-radius: 6px; text-align: center; font-weight: bold; font-size: 16px; color: var(--ios-blue); }
+
         .filter-input { width: 100%; border: 1px solid #d1d1d6; border-radius: 10px; padding: 12px; margin-top: 10px; box-sizing: border-box; font-size: 15px; }
+        
         #reader { width: 100%; border-radius: 12px; overflow: hidden; background: #000; margin-top: 10px; min-height: 180px; position: relative; }
         #reader-status { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #666; font-size: 14px; }
+        
         .list-item { padding: 12px; border-bottom: 0.5px solid #eee; position: relative; display: flex; flex-direction: column; gap: 6px; }
         .list-item.in-box { border-left: 6px solid var(--ios-green); background: #fafff9; }
+        
+        .tag-row { display: flex; flex-wrap: wrap; gap: 5px; }
+        .tag { font-size: 11px; padding: 2px 6px; border-radius: 4px; background: #eee; color: #444; font-weight: 500; }
+        .tag-blue { background: #e5f1ff; color: #007aff; }
+        .tag-orange { background: #fff3cd; color: #856404; }
+        
         .info-block { background: #f8f8f8; padding: 8px; border-radius: 8px; margin-top: 2px; border: 0.5px solid #efefef; }
         .data-row { display: flex; margin-bottom: 4px; font-size: 12px; }
         .data-label { color: #888; width: 75px; flex-shrink: 0; }
         .data-value { color: #1a1a1a; word-break: break-all; font-family: monospace; font-weight: 500; }
+
         .box-badge { position: absolute; right: 12px; top: 12px; background: var(--ios-green); color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: bold; }
+
         #toast { position: fixed; top: 30%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.85); color: white; padding: 16px 24px; border-radius: 12px; z-index: 9999; display: none; text-align: center; width: 60%; }
         .footer { position: fixed; bottom: 0; left: 0; right: 0; padding: 15px 20px calc(var(--safe-bottom) + 15px); background: rgba(255,255,255,0.9); backdrop-filter: blur(10px); border-top: 0.5px solid #ccc; z-index: 1000; }
     </style>
@@ -34,7 +47,6 @@
 
 <div id="toast"></div>
 
-<!-- 1. 导入区 -->
 <div class="card">
     <h3>📂 1. 数据导入</h3>
     <input type="file" id="excelInput" accept=".xlsx, .xls, .csv" style="display: none;">
@@ -42,7 +54,6 @@
     <div id="statusLog" style="text-align:center; font-size:12px; color:#999; margin-top:8px;">等待导入数据...</div>
 </div>
 
-<!-- 2. 装箱操作区 -->
 <div class="card">
     <div style="display:flex; justify-content: space-between; align-items: center;">
         <h3>📦 2. 装箱操作</h3>
@@ -55,14 +66,13 @@
     <button id="camBtn" class="btn btn-blue" style="margin-top:10px; display:none;">开启扫码相机</button>
 </div>
 
-<!-- 3. 核对明细区 -->
 <div class="card" style="padding: 10px 0;">
     <div style="padding: 0 15px;">
         <div style="display:flex; justify-content: space-between; align-items: center;">
             <h3>📋 3. 核对明细</h3>
             <b id="statText" style="color:var(--ios-blue); font-size:18px;">0 / 0</b>
         </div>
-        <input type="text" id="filterInput" class="filter-input" placeholder="🔍 搜索 保修单号/旧件条码...">
+        <input type="text" id="filterInput" class="filter-input" placeholder="🔍 搜索 保修单号/品牌/VIN/件号/旧件条码...">
     </div>
     <div id="itemList" style="margin-top: 10px; max-height: 380px; overflow-y: auto;"></div>
 </div>
@@ -80,19 +90,20 @@
     let boxData = {}; 
     let isProcessing = false;
     let cameraActive = false;
-    
-    // 初始化相机实例（全局唯一，避免权限冲突）
     const html5QrCode = new Html5Qrcode("reader");
     const beep = document.getElementById('beepAudio');
 
+    // 弹窗提示逻辑
     function showToast(msg) {
         const t = document.getElementById('toast');
         t.innerText = msg; t.style.display = 'block';
         setTimeout(() => { t.style.display = 'none'; isProcessing = false; }, 2000);
     }
 
+    // 搜索实时过滤
     document.getElementById('filterInput').addEventListener('input', (e) => renderList(e.target.value.toUpperCase()));
 
+    // 数据导入逻辑
     document.getElementById('excelInput').addEventListener('change', function(e) {
         const file = e.target.files[0];
         if (!file) return;
@@ -100,6 +111,7 @@
         reader.onload = function(e) {
             const workbook = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
             const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+            
             inventory = json.map(row => ({
                 orderNo: String(row["保修单号"] || ''),
                 partNo: String(row["旧件编号"] || ''),
@@ -109,8 +121,10 @@
                 brand: String(row["品牌"] || ''),
                 qty: row["数量"] || 1,
                 repairNo: String(row["维修编号"] || ''),
-                model: String(row["车型"] || '')
+                model: String(row["车型"] || ''),
+                original: row
             }));
+            
             document.getElementById('statusLog').innerText = `✅ 成功加载 ${inventory.length} 条数据`;
             renderList();
             document.getElementById('camBtn').style.display = 'block';
@@ -118,93 +132,85 @@
         reader.readAsArrayBuffer(file);
     });
 
-    // 重点修改：相机控制逻辑
-    document.getElementById('camBtn').addEventListener('click', async function() {
-        const btn = this;
-        
+    // 相机开关与提示音激活逻辑
+    document.getElementById('camBtn').addEventListener('click', function() {
         if(!cameraActive) {
-            // 启动前先解锁音频
+            // 关键：在用户点击按钮时播放静音音频，解锁手机音频限制
             beep.play().then(() => beep.pause()).catch(() => {});
             
-            try {
-                btn.disabled = true; // 防止重复点击
-                btn.innerText = "正在启动...";
-                
-                await html5QrCode.start(
-                    { facingMode: "environment" }, 
-                    { fps: 20, qrbox: { width: 250, height: 150 } }, 
-                    (code) => {
-                        if(isProcessing) return;
-                        handleSelection(code.trim());
-                    }
-                );
-                
-                document.getElementById('reader-status').style.display = 'none';
-                btn.innerText = "🛑 暂停相机";
-                btn.disabled = false;
-                cameraActive = true;
-            } catch (err) {
-                console.error("启动失败", err);
-                showToast("无法获取相机，请刷新页面或重置权限");
-                btn.innerText = "重试开启相机";
-                btn.disabled = false;
-            }
+            document.getElementById('reader-status').style.display = 'none';
+            html5QrCode.start({ facingMode: "environment" }, { fps: 25, qrbox: 250 }, (code) => {
+                if(isProcessing) return;
+                handleSelection(code.trim());
+            });
+            this.innerText = "🛑 暂停相机"; cameraActive = true;
         } else {
-            try {
-                btn.disabled = true;
-                await html5QrCode.stop();
-                // 停止后清除内部状态，但不销毁 DOM 容器
-                html5QrCode.clear(); 
-                
+            html5QrCode.stop().then(() => {
                 document.getElementById('reader-status').style.display = 'block';
-                document.getElementById('reader-status').innerText = "相机已暂停";
-                btn.innerText = "📷 重新开启相机";
-                btn.disabled = false;
-                cameraActive = false;
-            } catch (err) {
-                console.error("停止失败", err);
-                btn.disabled = false;
-            }
+                this.innerText = "📷 开启相机"; cameraActive = false;
+            });
         }
     });
 
+    // 扫描匹配逻辑：成功后触发声音和震动
     function handleSelection(barcode) {
         const item = inventory.find(i => i.barcode === barcode);
         if(!item) { isProcessing = true; showToast("❌ 错误：条码不在清单中"); return; }
-        if(boxData[barcode]) { isProcessing = true; showToast(`⚠️ 已在第 ${boxData[barcode].boxId} 箱`); return; }
+        if(boxData[barcode]) { isProcessing = true; showToast(`⚠️ 已装箱：第 ${boxData[barcode].boxId} 箱`); return; }
 
         const currentBox = document.getElementById('boxNumber').value;
         boxData[barcode] = { boxId: currentBox };
         
-        beep.currentTime = 0;
-        beep.play().catch(() => {});
+        // 🔊 触发提示音
+        beep.currentTime = 0; // 从头开始播放
+        beep.play().catch(err => console.log("音频播放失败", err));
+
+        // 📳 触发震动反馈 (80毫秒)
         if (navigator.vibrate) navigator.vibrate(80);
 
         renderList(document.getElementById('filterInput').value.toUpperCase());
     }
 
+    // 列表渲染逻辑
     function renderList(filter = '') {
         const listDiv = document.getElementById('itemList');
         listDiv.innerHTML = '';
+        
         const filtered = inventory.filter(i => 
             i.orderNo.toUpperCase().includes(filter) || 
+            i.brand.toUpperCase().includes(filter) ||
+            i.vin.toUpperCase().includes(filter) || 
+            i.partNo.toUpperCase().includes(filter) || 
             i.barcode.toUpperCase().includes(filter) ||
             i.name.includes(filter)
         );
+        
         document.getElementById('statText').innerText = `${Object.keys(boxData).length} / ${inventory.length}`;
+
         filtered.forEach(item => {
             const inBox = boxData[item.barcode];
             const div = document.createElement('div');
             div.className = `list-item ${inBox ? 'in-box' : ''}`;
             div.innerHTML = `
-                <div style="font-weight:bold; font-size:15px;">${item.name}</div>
+                <div style="font-weight:bold; font-size:15px; color:#1a1a1a;">${item.name}</div>
+                <div class="tag-row">
+                    <span class="tag tag-blue">${item.brand}</span>
+                    <span class="tag tag-orange">数量: ${item.qty}</span>
+                </div>
+                
                 <div class="info-block">
                     <div class="data-row"><span class="data-label">保修单号:</span><span class="data-value">${item.orderNo}</span></div>
+                    <div class="data-row"><span class="data-label">旧件编号:</span><span class="data-value">${item.partNo}</span></div>
+                    <div class="data-row"><span class="data-label">VIN:</span><span class="data-value">${item.vin}</span></div>
                     <div class="data-row"><span class="data-label">旧件条码:</span><span class="data-value">${item.barcode}</span></div>
                 </div>
+                
                 ${inBox ? `<div class="box-badge">第 ${inBox.boxId} 箱</div>` : ''}
                 <div style="margin-top:8px;">
-                    ${inBox ? `<button class="btn-outline" onclick="removeItem('${item.barcode}')">移出</button>` : ''}
+                    ${inBox ? 
+                        `<button class="btn-outline" onclick="removeItem('${item.barcode}')">移出箱子</button>` : 
+                        `<button class="btn-outline" onclick="handleSelection('${item.barcode}')">确认装箱</button>`
+                    }
                 </div>
             `;
             if(inBox) listDiv.prepend(div); else listDiv.appendChild(div);
@@ -213,9 +219,11 @@
 
     window.removeItem = (bc) => { delete boxData[bc]; renderList(); };
 
+    // 导出 Excel 逻辑
     function exportToTemplate() {
         const packedBarcodes = Object.keys(boxData);
-        if(packedBarcodes.length === 0) return alert("请先扫描");
+        if(packedBarcodes.length === 0) return alert("请至少装入一个配件再导出");
+
         const templateData = packedBarcodes.map(bc => {
             const item = inventory.find(i => i.barcode === bc);
             return {
@@ -224,15 +232,19 @@
                 "旧件编号(必填)": item.partNo,
                 "旧件名称": item.name,
                 "旧件条码(必填)": item.barcode,
+                "工单编号": item.repairNo,
                 "旧件数量(必填)": item.qty,
                 "VIN": item.vin,
-                "品牌": item.brand
+                "品牌": item.brand,
+                "车型": item.model
             };
         });
+
+        templateData.sort((a, b) => a.箱号 - b.箱号);
         const ws = XLSX.utils.json_to_sheet(templateData);
         const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "结果");
-        XLSX.writeFile(wb, `分箱结果.xlsx`);
+        XLSX.utils.book_append_sheet(wb, ws, "导入模板");
+        XLSX.writeFile(wb, `旧件信息清单导入模板.xlsx`);
     }
 </script>
 </body>
